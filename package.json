@@ -1,0 +1,33 @@
+{
+  "name": "imago",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@fal-ai/client": "^1.2.3",
+    "@vercel/blob": "^2.8.0",
+    "archiver": "^7.0.1",
+    "next": "15.5.24",
+    "nanoid": "^5.0.9",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/archiver": "^6.0.3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.24",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
