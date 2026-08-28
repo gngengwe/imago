@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { updateManifest } from "@/lib/manifest";
 import { evaluatePhotoSet } from "@/lib/anthropic";
 
+// Vision calls over a large photo set can take a while; 60s is the safe ceiling
+// across Vercel plans (Hobby caps at 60s regardless of what's configured).
+export const maxDuration = 60;
+
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
@@ -30,6 +34,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
             issues: evaluation.issues,
             duplicateOf: evaluation.duplicateOf ?? undefined,
             selected: evaluation.recommended,
+            suggestedCrop: evaluation.suggestedCrop ?? undefined,
+            useCrop: evaluation.suggestedCrop != null,
           };
         }),
       };

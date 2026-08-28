@@ -2,13 +2,18 @@
 
 import { useEffect, useState, use as usePromise } from "react";
 import { useRouter } from "next/navigation";
-import type { ProjectManifest } from "@/lib/types";
+import type { EnhancementStyleId, ProjectManifest } from "@/lib/types";
+import { ENHANCEMENT_STYLES } from "@/lib/prompts";
+import { COST_PER_IMAGE_USD } from "@/lib/fal";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = usePromise(params);
   const router = useRouter();
   const [manifest, setManifest] = useState<ProjectManifest | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [cropChoices, setCropChoices] = useState<Record<string, boolean>>({});
+  const [styleId, setStyleId] = useState<EnhancementStyleId>("editorial");
+  const [compareModels, setCompareModels] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,6 +26,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     const data: ProjectManifest = await res.json();
     setManifest(data);
     setSelected(new Set(data.photos.filter((p) => p.selected).map((p) => p.id)));
+    setCropChoices(Object.fromEntries(data.photos.map((p) => [p.id, p.useCrop])));
     return data;
   }
 
@@ -33,6 +39,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       const data: ProjectManifest = await res.json();
       setManifest(data);
       setSelected(new Set(data.photos.filter((p) => p.selected).map((p) => p.id)));
+      setCropChoices(Object.fromEntries(data.photos.map((p) => [p.id, p.useCrop])));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -56,6 +63,18 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     });
   }
 
+  function selectAllRecommended() {
+    if (!manifest) return;
+    setSelected(new Set(manifest.photos.filter((p) => p.recommended).map((p) => p.id)));
+  }
+  function selectAll() {
+    if (!manifest) return;
+    setSelected(new Set(manifest.photos.map((p) => p.id)));
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
   async function enhanceSelected() {
     if (selected.size === 0) {
       setError("Select at least one photo.");
@@ -71,7 +90,13 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       });
       if (!selRes.ok) throw new Error((await selRes.json()).error || "Failed to save selection");
 
-      const enhRes = await fetch(`/api/projects/${id}/enhance`, { method: "POST" });
+      const cropOverrides = Object.fromEntries(Array.from(selected).map((pid) => [pid, cropChoices[pid] ?? false]));
+
+      const enhRes = await fetch(`/api/projects/${id}/enhance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ styleId, compareModels, cropOverrides }),
+      });
       if (!enhRes.ok) throw new Error((await enhRes.json()).error || "Failed to start enhancement");
 
       router.push(`/projects/${id}/review`);
@@ -89,6 +114,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   }
 
   const evaluating = manifest.status === "uploaded" || busy;
+  const costMultiplier = compareModels ? 2 : 1;
+  const estimatedCost = selected.size * costMultiplier * COST_PER_IMAGE_USD;
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
@@ -101,33 +128,81 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       )}
       {error && <p className="mb-4 text-bad">{error}</p>}
 
+      {manifest.status === "evaluated" && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <button className="btn-secondary" onClick={selectAllRecommended}>Select recommended</button>
+          <button className="btn-secondary" onClick={selectAll}>Select all</button>
+          <button className="btn-secondary" onClick={clearSelection}>Clear</button>
+        </div>
+      )}
+
       <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
         {manifest.photos.map((photo) => (
-          <label key={photo.id} className="card cursor-pointer overflow-hidden p-2">
-            <img
-              src={photo.originalUrl}
-              alt={photo.filename}
-              className="mb-2 aspect-square w-full rounded object-cover"
-            />
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm">{photo.filename}</p>
-                {typeof photo.score === "number" && (
-                  <p className="text-xs text-paper-dim">score {photo.score}</p>
-                )}
-                {photo.duplicateOf && (
-                  <p className="text-xs text-bad">near-duplicate</p>
-                )}
-              </div>
-              <input
-                type="checkbox"
-                checked={selected.has(photo.id)}
-                onChange={() => toggle(photo.id)}
+          <div key={photo.id} className="card overflow-hidden p-2">
+            <label className="cursor-pointer">
+              <img
+                src={photo.originalUrl}
+                alt={photo.filename}
+                className="mb-2 aspect-square w-full rounded object-cover"
               />
-            </div>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm">{photo.filename}</p>
+                  {typeof photo.score === "number" && (
+                    <p className="text-xs text-paper-dim">score {photo.score}</p>
+                  )}
+                  {photo.duplicateOf && (
+                    <p className="text-xs text-bad">near-duplicate</p>
+                  )}
+                </div>
+                <input
+                  type="checkbox"
+                  checked={selected.has(photo.id)}
+                  onChange={() => toggle(photo.id)}
+                />
+              </div>
+            </label>
             {photo.reason && <p className="mt-1 text-xs text-paper-dim">{photo.reason}</p>}
-          </label>
+            {photo.suggestedCrop && (
+              <label className="mt-2 flex items-center gap-2 text-xs text-paper-dim">
+                <input
+                  type="checkbox"
+                  checked={cropChoices[photo.id] ?? false}
+                  onChange={(e) =>
+                    setCropChoices((prev) => ({ ...prev, [photo.id]: e.target.checked }))
+                  }
+                />
+                Reframe suggested
+              </label>
+            )}
+          </div>
         ))}
+      </div>
+
+      <div className="card mb-6 flex flex-wrap items-center gap-4 p-4">
+        <div>
+          <p className="mb-1 text-xs text-paper-dim">Enhancement style</p>
+          <div className="flex gap-1">
+            {(Object.keys(ENHANCEMENT_STYLES) as EnhancementStyleId[]).map((sid) => (
+              <button
+                key={sid}
+                type="button"
+                onClick={() => setStyleId(sid)}
+                className={sid === styleId ? "btn-primary" : "btn-secondary"}
+              >
+                {ENHANCEMENT_STYLES[sid].label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={compareModels}
+            onChange={(e) => setCompareModels(e.target.checked)}
+          />
+          Compare 2 models per photo
+        </label>
       </div>
 
       <div className="flex items-center gap-3">
@@ -135,7 +210,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           {busy ? "Working…" : `Enhance Selected (${selected.size})`}
         </button>
         <span className="text-sm text-paper-dim">
-          {manifest.recommendedCount != null && `Imago recommends about ${manifest.recommendedCount} photos.`}
+          ≈${estimatedCost.toFixed(2)}
+          {manifest.recommendedCount != null && ` · Imago recommends about ${manifest.recommendedCount} photos.`}
         </span>
       </div>
     </main>

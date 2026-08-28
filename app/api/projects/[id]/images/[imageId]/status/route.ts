@@ -3,6 +3,8 @@ import { updateManifest } from "@/lib/manifest";
 import { checkEdit } from "@/lib/fal";
 import { uploadEnhancedImage } from "@/lib/storage";
 
+export const maxDuration = 60;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; imageId: string }> },
@@ -19,7 +21,7 @@ export async function GET(
       if (!version) throw new Error("Version not found");
       if (version.status !== "pending") return m;
 
-      const result = await checkEdit(version.historyId);
+      const result = await checkEdit(version.historyId, version.model);
       if (result.status === "pending") return m;
 
       let resultUrl: string | undefined;

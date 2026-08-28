@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { updateManifest } from "@/lib/manifest";
-import { submitEdit } from "@/lib/fal";
+import { submitEdit, DEFAULT_MODEL } from "@/lib/fal";
 import { buildEnhancementPrompt } from "@/lib/prompts";
+import { cropAndUploadImage } from "@/lib/storage";
 import type { EnhancementVersion } from "@/lib/types";
+
+export const maxDuration = 60;
 
 export async function POST(
   req: NextRequest,
@@ -20,15 +23,29 @@ export async function POST(
       const photo = m.photos.find((p) => p.id === imageId);
       if (!photo) throw new Error("Photo not found");
 
-      const prompt = buildEnhancementPrompt(m.narrativeSummary ?? m.narrativeBrief, feedback);
-      const requestId = await submitEdit(prompt, [photo.originalUrl]);
+      // Reuse the style/model from the photo's last enhancement so a revision
+      // doesn't silently fall back to defaults and drop what was chosen earlier.
+      const last = photo.enhancements[photo.enhancements.length - 1];
+      const styleId = last?.styleId ?? "editorial";
+      const model = last?.model ?? DEFAULT_MODEL;
+
+      const sourceUrl =
+        photo.useCrop && photo.suggestedCrop
+          ? await cropAndUploadImage(id, photo.id, photo.originalUrl, photo.suggestedCrop)
+          : photo.originalUrl;
+
+      const prompt = buildEnhancementPrompt(m.narrativeSummary ?? m.narrativeBrief, styleId, feedback);
+      const requestId = await submitEdit(prompt, [sourceUrl], model);
       const version: EnhancementVersion = {
         id: nanoid(10),
         historyId: requestId,
+        model,
+        styleId,
         prompt,
         feedback,
         status: "pending",
         createdAt: new Date().toISOString(),
+        batchId: nanoid(8),
       };
 
       return {

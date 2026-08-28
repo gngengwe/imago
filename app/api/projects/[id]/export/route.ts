@@ -3,6 +3,8 @@ import archiver from "archiver";
 import { loadManifest } from "@/lib/manifest";
 import type { EnhancementVersion, PhotoRecord } from "@/lib/types";
 
+export const maxDuration = 60;
+
 interface FinalEntry {
   photo: PhotoRecord;
   version: EnhancementVersion;

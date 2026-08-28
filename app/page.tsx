@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 
 export default function HomePage() {
   const router = useRouter();
   const [narrativeBrief, setNarrativeBrief] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
@@ -18,6 +20,7 @@ export default function HomePage() {
     }
     setLoading(true);
     setError(null);
+    setProgress({ done: 0, total: files.length });
     try {
       const createRes = await fetch("/api/projects", {
         method: "POST",
@@ -27,18 +30,32 @@ export default function HomePage() {
       if (!createRes.ok) throw new Error((await createRes.json()).error || "Failed to create project");
       const project = await createRes.json();
 
-      const form = new FormData();
-      files.forEach((f) => form.append("files", f));
-      const uploadRes = await fetch(`/api/projects/${project.id}/upload`, {
+      let done = 0;
+      const uploaded = await Promise.all(
+        files.map(async (file) => {
+          const blob = await upload(`projects/${project.id}/originals/${file.name}`, file, {
+            access: "public",
+            handleUploadUrl: `/api/projects/${project.id}/upload-token`,
+            contentType: file.type || undefined,
+          });
+          done += 1;
+          setProgress({ done, total: files.length });
+          return { filename: file.name, url: blob.url };
+        }),
+      );
+
+      const registerRes = await fetch(`/api/projects/${project.id}/upload`, {
         method: "POST",
-        body: form,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photos: uploaded }),
       });
-      if (!uploadRes.ok) throw new Error((await uploadRes.json()).error || "Failed to upload photos");
+      if (!registerRes.ok) throw new Error((await registerRes.json()).error || "Failed to save uploads");
 
       router.push(`/projects/${project.id}`);
     } catch (err) {
       setError((err as Error).message);
       setLoading(false);
+      setProgress(null);
     }
   }
 
@@ -80,7 +97,11 @@ export default function HomePage() {
         {error && <p className="text-sm text-bad">{error}</p>}
 
         <button type="submit" className="btn-primary w-full" disabled={loading}>
-          {loading ? "Uploading…" : "Upload & Evaluate"}
+          {loading
+            ? progress
+              ? `Uploading ${progress.done}/${progress.total}…`
+              : "Uploading…"
+            : "Upload & Evaluate"}
         </button>
       </form>
     </main>
