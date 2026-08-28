@@ -82,6 +82,10 @@ export default function HomePage() {
               narrative, and finishes them to a professional standard — so the moment you
               lived comes out the other side as a story, not a folder.
             </p>
+            <p className="mt-3 max-w-md text-base leading-relaxed text-paper-dim">
+              Most of what you shot won&rsquo;t make the cut, and Imago tells you which shots
+              are worth keeping before it touches a single one — enhancement is optional.
+            </p>
 
             <form onSubmit={onSubmit} className="panel mt-8 space-y-5 p-6 sm:p-7">
               <p className="eyebrow">Start a project</p>
@@ -177,7 +181,8 @@ export default function HomePage() {
               <h3 className="font-display mt-1 text-lg text-paper">Keep what carries the story</h3>
               <p className="mt-2 text-sm leading-relaxed text-paper-dim">
                 Imago scores every photo for narrative fit and quality, clears out
-                near-duplicates, and selects the set that actually tells the story.
+                near-duplicates, and tells you honestly how many of the fifty are actually
+                worth keeping — before anything gets enhanced.
               </p>
             </div>
 
@@ -199,6 +204,11 @@ export default function HomePage() {
               </p>
             </div>
           </div>
+
+          <p className="mt-12 text-center text-sm text-paper-dim">
+            Prefer to stop at step two? Export your culled set as-is — no enhancement,
+            no cost.
+          </p>
         </section>
       </main>
     </>

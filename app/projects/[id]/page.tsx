@@ -106,6 +106,28 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     }
   }
 
+  async function exportSelectedOriginals() {
+    if (selected.size === 0) {
+      setError("Select at least one photo.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const selRes = await fetch(`/api/projects/${id}/selection`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoIds: Array.from(selected) }),
+      });
+      if (!selRes.ok) throw new Error((await selRes.json()).error || "Failed to save selection");
+      window.location.href = `/api/projects/${id}/export-originals`;
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (error && !manifest) {
     return <main className="mx-auto max-w-2xl px-6 py-16 text-bad">{error}</main>;
   }
@@ -121,7 +143,13 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     <main className="mx-auto max-w-5xl px-6 py-12">
       <h1 className="mb-1 text-2xl font-semibold">Evaluation</h1>
       {manifest.narrativeSummary && (
-        <p className="mb-6 text-paper-dim">{manifest.narrativeSummary}</p>
+        <p className="mb-4 text-paper-dim">{manifest.narrativeSummary}</p>
+      )}
+      {manifest.status === "evaluated" && manifest.recommendedCount != null && (
+        <p className="font-display mb-6 text-xl text-paper">
+          You uploaded <span className="text-accent">{manifest.photos.length}</span> photos — Imago
+          recommends keeping <span className="text-accent">{manifest.recommendedCount}</span>.
+        </p>
       )}
       {evaluating && manifest.status !== "evaluated" && (
         <p className="mb-6 text-paper-dim">Evaluating photos against the narrative…</p>
@@ -205,15 +233,22 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         </label>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button className="btn-primary" onClick={enhanceSelected} disabled={busy || manifest.status !== "evaluated"}>
           {busy ? "Working…" : `Enhance Selected (${selected.size})`}
         </button>
-        <span className="text-sm text-paper-dim">
-          ≈${estimatedCost.toFixed(2)}
-          {manifest.recommendedCount != null && ` · Imago recommends about ${manifest.recommendedCount} photos.`}
-        </span>
+        <span className="text-sm text-paper-dim">≈${estimatedCost.toFixed(2)}</span>
+        <button
+          className="btn-secondary"
+          onClick={exportSelectedOriginals}
+          disabled={busy || manifest.status !== "evaluated"}
+        >
+          Skip enhancement — export as-is ({selected.size})
+        </button>
       </div>
+      <p className="mt-2 text-xs text-paper-dim">
+        Just want the culled set? Export the originals with no enhancement and no cost.
+      </p>
     </main>
   );
 }
