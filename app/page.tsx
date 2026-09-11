@@ -4,14 +4,32 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { upload } from "@vercel/blob/client";
+import { isLocalFolderSupported, listImageFiles, saveProjectDirHandle } from "@/lib/local-folder";
 
 export default function HomePage() {
   const router = useRouter();
   const [narrativeBrief, setNarrativeBrief] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [dirHandle, setDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function pickLocalFolder() {
+    setError(null);
+    try {
+      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const images = await listImageFiles(handle);
+      if (images.length === 0) {
+        setError("That folder has no photos in it.");
+        return;
+      }
+      setDirHandle(handle);
+      setFiles(images.map((img) => img.file));
+    } catch {
+      // User cancelled the picker — not an error worth surfacing.
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,6 +69,10 @@ export default function HomePage() {
         body: JSON.stringify({ photos: uploaded }),
       });
       if (!registerRes.ok) throw new Error((await registerRes.json()).error || "Failed to save uploads");
+
+      if (dirHandle) {
+        await saveProjectDirHandle(project.id, dirHandle);
+      }
 
       router.push(`/projects/${project.id}`);
     } catch (err) {
@@ -112,7 +134,20 @@ export default function HomePage() {
                   onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
                 />
                 {files.length > 0 && (
-                  <p className="mt-2 text-sm text-paper-dim">{files.length} photo(s) selected</p>
+                  <p className="mt-2 text-sm text-paper-dim">
+                    {files.length} photo(s) selected
+                    {dirHandle && " from your local folder"}
+                  </p>
+                )}
+                {isLocalFolderSupported() && (
+                  <button
+                    type="button"
+                    onClick={pickLocalFolder}
+                    className="mt-2 text-sm text-accent underline decoration-accent-dim underline-offset-4 hover:text-paper"
+                  >
+                    Or choose a folder on this computer — lets you archive culled
+                    photos there later
+                  </button>
                 )}
               </div>
 

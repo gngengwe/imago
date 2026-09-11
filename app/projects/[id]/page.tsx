@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import type { EnhancementStyleId, ProjectManifest } from "@/lib/types";
 import { ENHANCEMENT_STYLES } from "@/lib/prompts";
 import { COST_PER_IMAGE_USD } from "@/lib/fal";
+import {
+  getProjectDirHandle,
+  ensureReadWritePermission,
+  archivePhotosLocally,
+  type ArchiveResult,
+} from "@/lib/local-folder";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = usePromise(params);
@@ -16,6 +22,10 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [compareModels, setCompareModels] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dirHandle, setDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveResults, setArchiveResults] = useState<ArchiveResult[] | null>(null);
+  const [permissionNeeded, setPermissionNeeded] = useState(false);
 
   async function load() {
     const res = await fetch(`/api/projects/${id}`, { cache: "no-store" });
@@ -51,6 +61,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     load().then((data) => {
       if (data && data.status === "uploaded") runEvaluation();
     });
+    getProjectDirHandle(id).then(setDirHandle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -125,6 +136,39 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       setError((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function archiveCulled() {
+    if (!manifest || !dirHandle) return;
+    const culled = manifest.photos.filter((p) => !selected.has(p.id));
+    if (culled.length === 0) {
+      setError("Nothing to archive — every photo is currently selected.");
+      return;
+    }
+    const ok = window.confirm(
+      `Move ${culled.length} unselected photo(s) into an "Imago Archived" subfolder of ` +
+        `your local folder? The originals will be removed from the top level. This can be ` +
+        `undone manually by moving them back.`,
+    );
+    if (!ok) return;
+
+    setArchiveBusy(true);
+    setError(null);
+    setArchiveResults(null);
+    setPermissionNeeded(false);
+    try {
+      const granted = await ensureReadWritePermission(dirHandle);
+      if (!granted) {
+        setPermissionNeeded(true);
+        return;
+      }
+      const results = await archivePhotosLocally(dirHandle, culled.map((p) => p.filename));
+      setArchiveResults(results);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setArchiveBusy(false);
     }
   }
 
@@ -249,6 +293,50 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       <p className="mt-2 text-xs text-paper-dim">
         Just want the culled set? Export the originals with no enhancement and no cost.
       </p>
+
+      {dirHandle && manifest.status === "evaluated" && (
+        <div className="card mt-6 p-4">
+          <p className="eyebrow mb-1">Local folder</p>
+          <p className="mb-3 text-sm text-paper-dim">
+            This project was uploaded from a folder on this computer. You can archive the
+            photos you didn&rsquo;t select — they&rsquo;ll move into an{" "}
+            <span className="text-paper">Imago Archived</span> subfolder there, not be deleted
+            outright.
+          </p>
+
+          {permissionNeeded && (
+            <p className="mb-3 text-sm text-bad">
+              This browser needs permission again to write to that folder — click below to
+              re-grant it.
+            </p>
+          )}
+
+          <button className="btn-secondary" onClick={archiveCulled} disabled={archiveBusy}>
+            {archiveBusy
+              ? "Archiving…"
+              : `Archive culled photos to this folder (${manifest.photos.length - selected.size})`}
+          </button>
+
+          {archiveResults && (
+            <div className="mt-3 text-sm">
+              <p className="text-paper-dim">
+                {archiveResults.filter((r) => r.ok).length} of {archiveResults.length} archived.
+              </p>
+              {archiveResults.some((r) => !r.ok) && (
+                <ul className="mt-1 list-disc pl-5 text-bad">
+                  {archiveResults
+                    .filter((r) => !r.ok)
+                    .map((r) => (
+                      <li key={r.filename}>
+                        {r.filename}: {r.error}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </main>
   );
 }
