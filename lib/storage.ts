@@ -1,6 +1,41 @@
-import { put } from "@vercel/blob";
+import { put, list, del } from "@vercel/blob";
 import sharp from "sharp";
 import type { PhotoCrop } from "./types";
+
+async function deleteInBatches(urls: string[]): Promise<void> {
+  const BATCH = 50;
+  for (let i = 0; i < urls.length; i += BATCH) {
+    await del(urls.slice(i, i + BATCH));
+  }
+}
+
+async function deleteByPrefix(prefix: string): Promise<number> {
+  let count = 0;
+  let cursor: string | undefined;
+  do {
+    const res = await list({ prefix, cursor, limit: 1000 });
+    if (res.blobs.length > 0) {
+      await deleteInBatches(res.blobs.map((b) => b.url));
+      count += res.blobs.length;
+    }
+    cursor = res.hasMore ? res.cursor : undefined;
+  } while (cursor);
+  return count;
+}
+
+// Everything under a project's prefix — originals, enhanced outputs, cropped
+// derivatives, and every manifest version — in one sweep. Used by the
+// user-initiated "delete project" action; irreversible.
+export async function deleteAllProjectFiles(projectId: string): Promise<number> {
+  return deleteByPrefix(`projects/${projectId}/`);
+}
+
+// Only the original uploads — never enhanced outputs or the manifest. Called
+// by the scheduled cleanup route for projects exported past the retention
+// window (see ORIGINALS_RETENTION_DAYS in lib/manifest.ts).
+export async function deleteProjectOriginals(projectId: string): Promise<number> {
+  return deleteByPrefix(`projects/${projectId}/originals/`);
+}
 
 export async function cropAndUploadImage(
   projectId: string,

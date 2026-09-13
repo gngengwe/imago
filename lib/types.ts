@@ -54,4 +54,7 @@ export interface ProjectManifest {
   recommendedCount?: number;
   status: ProjectStatus;
   photos: PhotoRecord[];
+  // Set/refreshed on every successful export; the scheduled cleanup route
+  // deletes originals once this is older than ORIGINALS_RETENTION_DAYS.
+  exportedAt?: string;
 }

@@ -1,11 +1,57 @@
-import { put, list } from "@vercel/blob";
+import { put, list, del } from "@vercel/blob";
 import { nanoid } from "nanoid";
 import type { ProjectManifest } from "./types";
 
 type ManifestBlob = Awaited<ReturnType<typeof list>>["blobs"][number];
 
+// How long after export a project's original photos get auto-deleted by the
+// cleanup route (see app/api/admin/cleanup/route.ts). Enhanced finals and the
+// manifest are untouched — only the multi-MB originals of everything that
+// wasn't selected are worth reclaiming.
+export const ORIGINALS_RETENTION_DAYS = 7;
+
 function manifestPrefix(id: string) {
   return `projects/${id}/manifest/`;
+}
+
+async function deleteInBatches(urls: string[]): Promise<void> {
+  const BATCH = 50;
+  for (let i = 0; i < urls.length; i += BATCH) {
+    await del(urls.slice(i, i + BATCH));
+  }
+}
+
+export async function listAllProjectIds(): Promise<string[]> {
+  const ids = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const res = await list({ prefix: "projects/", cursor, limit: 1000 });
+    for (const blob of res.blobs) {
+      const id = blob.pathname.split("/")[1];
+      if (id) ids.add(id);
+    }
+    cursor = res.hasMore ? res.cursor : undefined;
+  } while (cursor);
+  return Array.from(ids);
+}
+
+// Deliberately decoupled from the write path (saveManifest/updateManifest) —
+// that's exactly what the old "keep newest 3" logic got wrong: cleanup running
+// on every write, deciding staleness from a list() snapshot that could be
+// incomplete mid-race with another concurrent write. This runs on its own
+// schedule (see app/api/admin/cleanup/route.ts) and only ever deletes versions
+// older than a 5-minute safety margin, so it can never touch an in-flight write.
+export async function pruneManifestVersions(id: string): Promise<number> {
+  const { blobs } = await list({ prefix: manifestPrefix(id) });
+  if (blobs.length <= 1) return 0;
+
+  const newest = blobs.reduce((a, b) => (b.uploadedAt > a.uploadedAt ? b : a));
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  const stale = blobs.filter((b) => b.url !== newest.url && b.uploadedAt.getTime() < cutoff);
+  if (stale.length === 0) return 0;
+
+  await deleteInBatches(stale.map((b) => b.url));
+  return stale.length;
 }
 
 // Vercel Blob's public URLs are CDN-cached by pathname regardless of query string,

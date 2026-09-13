@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import archiver from "archiver";
-import { loadManifest } from "@/lib/manifest";
+import { loadManifest, updateManifest } from "@/lib/manifest";
 import type { EnhancementVersion, PhotoRecord } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -42,6 +42,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   await archive.finalize();
   const zipBuffer = await done;
+
+  await updateManifest(id, (m) => ({ ...m, exportedAt: new Date().toISOString() }));
 
   return new NextResponse(new Uint8Array(zipBuffer), {
     headers: {

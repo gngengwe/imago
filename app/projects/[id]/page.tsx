@@ -12,6 +12,10 @@ import {
   type ArchiveResult,
 } from "@/lib/local-folder";
 
+// lib/manifest.ts isn't safe to import client-side (it pulls in @vercel/blob),
+// so this mirrors ORIGINALS_RETENTION_DAYS there for display purposes only.
+const ORIGINALS_RETENTION_DAYS = 7;
+
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = usePromise(params);
   const router = useRouter();
@@ -26,6 +30,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveResults, setArchiveResults] = useState<ArchiveResult[] | null>(null);
   const [permissionNeeded, setPermissionNeeded] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   async function load() {
     const res = await fetch(`/api/projects/${id}`, { cache: "no-store" });
@@ -172,6 +177,27 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     }
   }
 
+  async function deleteProject() {
+    if (!manifest) return;
+    const ok = window.confirm(
+      `Permanently delete this project? All ${manifest.photos.length} uploaded photos, any ` +
+        `enhanced versions, and this project's data will be removed from Imago's storage. ` +
+        `Unlike archiving to a local folder, there is no copy left anywhere. This cannot be undone.`,
+    );
+    if (!ok) return;
+
+    setDeleteBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to delete project");
+      router.push("/");
+    } catch (err) {
+      setError((err as Error).message);
+      setDeleteBusy(false);
+    }
+  }
+
   if (error && !manifest) {
     return <main className="mx-auto max-w-2xl px-6 py-16 text-bad">{error}</main>;
   }
@@ -182,6 +208,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const evaluating = manifest.status === "uploaded" || busy;
   const costMultiplier = compareModels ? 2 : 1;
   const estimatedCost = selected.size * costMultiplier * COST_PER_IMAGE_USD;
+  const originalsLikelyExpired =
+    !!manifest.exportedAt &&
+    Date.now() - new Date(manifest.exportedAt).getTime() > ORIGINALS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
@@ -199,6 +228,12 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         <p className="mb-6 text-paper-dim">Evaluating photos against the narrative…</p>
       )}
       {error && <p className="mb-4 text-bad">{error}</p>}
+      {originalsLikelyExpired && (
+        <p className="mb-4 text-sm text-paper-dim">
+          This project&rsquo;s original photos were automatically removed {ORIGINALS_RETENTION_DAYS} days
+          after export — thumbnails below may not load. Your exported files aren&rsquo;t affected.
+        </p>
+      )}
 
       {manifest.status === "evaluated" && (
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
@@ -293,6 +328,10 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       <p className="mt-2 text-xs text-paper-dim">
         Just want the culled set? Export the originals with no enhancement and no cost.
       </p>
+      <p className="mt-1 text-xs text-paper-dim">
+        Original photos are automatically removed {ORIGINALS_RETENTION_DAYS} days after export to
+        save storage — your export and any enhanced finals aren&rsquo;t affected.
+      </p>
 
       {dirHandle && manifest.status === "evaluated" && (
         <div className="card mt-6 p-4">
@@ -337,6 +376,21 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           )}
         </div>
       )}
+
+      <div className="mt-10 border-t border-ink-mid pt-6">
+        <p className="mb-2 text-xs uppercase tracking-wide text-paper-dim/70">Danger zone</p>
+        <button
+          className="btn-secondary border-bad/40 text-bad hover:bg-bad/10"
+          onClick={deleteProject}
+          disabled={deleteBusy}
+        >
+          {deleteBusy ? "Deleting…" : "Delete this project"}
+        </button>
+        <p className="mt-2 text-xs text-paper-dim">
+          Removes all {manifest.photos.length} photos, any enhanced versions, and this
+          project&rsquo;s data from Imago permanently.
+        </p>
+      </div>
     </main>
   );
 }
